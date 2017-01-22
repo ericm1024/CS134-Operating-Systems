@@ -1,0 +1,13 @@
+REFERENCES
+
+I referenced the Linux man pages, the bash reference manual, and an online
+article about the tar utility.
+
+https://www.gnu.org/software/bash/manual/html_node/index.html
+http://www.howtogeek.com/248780/how-to-compress-and-extract-files-using-the-tar-command-on-linux/
+
+SMOKE TEST
+
+My "smoke test" for the lab is a short bash script (called simply "test") that
+runs the lab0 executable with a variety of arguments and inputs and ensures that
+the return values and outputs are as expected.

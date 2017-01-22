@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Some rudimentary tests for lab0
+# Eric Mueller
+# emueller@hmc.edu
+
+# http://redsymbol.net/articles/bash-exit-traps/
+function finish {
+    rm -f in.txt out.txt
+}
+trap finish EXIT
+
+# basic test
+diff <(echo "A" | ./lab0) <(echo "A")
+if [ $? -ne 0 ]; then
+   echo "basic test did not work"
+   exit 1
+fi
+
+# segfault test
+echo "A" | ./lab0 --segfault --catch > /dev/null 2>&1
+if [ $? -ne 3 ]; then
+   echo "segfault doesn't work"
+   exit 1
+fi
+
+# output test
+echo "A" | ./lab0 --output=out.txt
+if [ $? -ne 0 ]; then
+   echo "--output basic test failed"
+   exit 1
+fi
+diff out.txt <(echo "A")
+if [ $? -ne 0 ]; then
+   echo "--output basic test got bad result"
+   exit 1
+fi
+
+# input test
+echo "blah" > in.txt
+diff <(./lab0 --input=in.txt) <(echo "blah")
+if [ $? -ne 0 ]; then
+   echo "--input basic test failed"
+   exit 1
+fi
+
+# input/output test
+echo "abcdefghijklmnopqrstuvwxyz" > in.txt
+./lab0 --input=in.txt --output=out.txt
+if [ $? -ne 0 ]; then
+   echo "--input + --output test failed"
+   exit 1
+fi
+diff in.txt out.txt
+if [ $? -ne 0 ]; then
+   echo "--input + --output test diff"
+   exit 1
+fi
+
+# input/output test with segfault
+echo "abcdefghijklmnopqrstuvwxyz" > in.txt
+./lab0 --input=in.txt --output=out.txt --segfault --catch 2>/dev/null
+if [ $? -ne 3 ]; then
+   echo "--input + --output test with segfault failed"
+   exit 1
+fi
+diff in.txt out.txt
+if [ $? -ne 0 ]; then
+   echo "--input + --output test with segfault diff"
+   exit 1
+fi
+
+# big test
+dd if=/dev/urandom of=in.txt bs=512 count=16 2>/dev/null
+./lab0 --input=in.txt --output=out.txt
+if [ $? -ne 0 ]; then
+   echo "--input + --output test failed"
+   exit 1
+fi
+diff in.txt out.txt
+if [ $? -ne 0 ]; then
+   echo "big test diff"
+   exit 1
+fi
+
+echo "all tests passed"
