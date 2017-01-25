@@ -86,7 +86,7 @@ int main(int argc, char **argv)
                         input_fname = optarg;
                         input_fd = open(input_fname, O_RDONLY);
                         if (input_fd < 0) {
-                                fprintf(stderr, "could not open input file %s:%s\n",
+                                fprintf(stderr, "could not open input file %s: %s\n",
                                         input_fname, strerror(errno));
                                 exit(1);
                         }
@@ -97,7 +97,7 @@ int main(int argc, char **argv)
                         output_fname = optarg;
                         output_fd = open(output_fname, O_WRONLY|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
                         if (output_fd < 0) {
-                                fprintf(stderr, "could not create output file %s:%s\n",
+                                fprintf(stderr, "could not create output file %s: %s\n",
                                         output_fname, strerror(errno));
                                 exit(2);
                         }
@@ -146,8 +146,9 @@ int main(int argc, char **argv)
                 }
         }
 
-        // make sure the output_fd is flushed before we possibly segfault
+        // close can fail, but there's not much we can do about it
         close(output_fd);
+        close(input_fd);
 
         if (should_segfault)
                 do_segfault();

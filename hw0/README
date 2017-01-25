@@ -1,3 +1,22 @@
+FILES
+
+This submission includes the following files:
+
+    Makefile: My build script for this assignment.
+
+    README: this file
+
+    gdb_confirm_null_ptr.png: a screenshot of a gdb session confirming that
+    the dereferenced pointer is ineed null
+
+    gdb_segfault_backtrace.png: a screenshot of a gdb session showing a
+    backtrace of the segfault.
+
+    lab0.c: the sorce file for this assignment.
+
+    test: a bash script that runs the executable through some tests. Run
+    using `make check`.
+
 REFERENCES
 
 I referenced the Linux man pages, the bash reference manual, and an online
@@ -11,3 +30,11 @@ SMOKE TEST
 My "smoke test" for the lab is a short bash script (called simply "test") that
 runs the lab0 executable with a variety of arguments and inputs and ensures that
 the return values and outputs are as expected.
+
+LIMITATIONS
+
+The lab0 program does not handle short writes (e.g. a call to write(2) that
+writes less bytes than asked). The decision was made not to handle short
+writes because I don't know how to test them on regular files, and that
+kind of robustness seemed a excessive for this assignment.
+
