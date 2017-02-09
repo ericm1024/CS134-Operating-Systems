@@ -1,0 +1,23 @@
+NAME: Eric Mueller
+EMAIL: emueller@hmc.edu
+
+SERIAL: FZEDA623D01X4M501
+MAC: fc:db:b3:95:4a:d9
+
+This tarball contains the following files:
+
+* edison_selfie_1.jpg: A selfie of me with my Edison
+
+* edison_selfie_2.jpg: A picture of just the Edison so the SN is more visable.
+
+* usb.png: A screenshot of a terminal session over usb showing the hostname and
+  network information of my Edison.
+
+* scp.png: A screenshot of a local terminal session in which I copy a file from
+  my laptop to my Edison via scp.
+
+* hello_world.png: A screenshot of an ssh session in which I build and run my
+  trivial program.
+
+* git.png: A screenshot of an ssh session in which I install git, clone a repo,
+  and run `ls` on the newly-cloned repository root.
