@@ -1,0 +1,31 @@
+NAME: Eric Mueller
+EMAIL: emueller@hmc.edu
+ID: 40160869
+
+This tarball contains this README, the Makefile, the two C source files,
+a header header file for common stuff (e.g. encryption setup and dying), and
+the encryption key file my.key.
+
+Encryption is doesn using AES-128. The key was generated using the command
+dd if=/dev/urandom of=my.key bs=32 count=1. We use an IV of all zeros.
+
+My implementation is fairly straightforward. It only does reads and writes
+one character at a time. This is admitedly not efficient, but we need to
+echo every character anyway, so a buffered implementation would only be
+faster in the event that we get scheduled out for a long period of time.
+However, a propper buffered implementation is complicated and very difficult
+to test because we'd need to block and unblock the client and server
+processes to force buffering. Thus I didn't bother.
+
+One could argue that the pipeline from shell --> server --> client could
+more easily be buffered, but again I didn't bother--the buffering doesn't
+add any perceivable functionality.
+
+My server tries its best to actually print the right exit status (0 or 2)
+depending on weather or not the shell exited or the socket was closed.
+It also tries its best to print the child's exit status, but it doesn't
+do so with atexit() because I was observing some behavior I couldn't explain
+when using atexit() in the presence of threads and signals.
+
+The terminal modes are probably not right, but the behavior seems to be
+close.

@@ -1,6 +1,6 @@
 // lab1b-server.c
 //
-// Eric Mueller -- emueller@hmc.edu
+// Eric Mueller -- emueller@hmc.edu -- 40160869
 //
 // Implementation of the server for Pomona College CS134's lab1b, as described here:
 // http://www.cs.pomona.edu/classes/cs134/projects/P1B.html
@@ -9,13 +9,29 @@
 
 static pid_t child_pid = -1;
 
-// called at exit: print the child's exit status
+// grossness: we want to exit with RC=2 if we get an error from the socket,
+// however when this happens we close the child's pipes, which means our thread
+// will see EOF from the child and will happily exit with RC=0. This variable
+// allows us to communicate the reason things are shutting down
+static volatile int error_from_socket = 0;
+
+// print the child's exit status
 static void reap_child()
 {
         int status;
         pid_t pid = wait(&status);
-        if (pid == -1)
+        if (pid == -1) {
+                // the other thread beat us to the wait, so just spin until
+                // it gets through the print and gets to exit
+                // Note that if we don't do this, this thread will likely get
+                // to exit before the other thread does and the print
+                // statement below will never execute (bad)
+                if (errno == ECHILD) {
+                        for (;;)
+                                sched_yield();
+                }
                 die("wait", errno);
+        }
 
         fprintf(stderr, "SHELL EXIT SIGNAL=%d STATUS=%d\r\n",
                 WIFSIGNALED(status) ? WTERMSIG(status) : 0,
@@ -26,14 +42,18 @@ static void reap_child()
 static void sigpipe_handler(int sig)
 {
         (void)sig;
-        exit(0);
+        reap_child();
+        if (!error_from_socket)
+                exit(0);
+        else
+                exit(2);
 }
 
 #define ENCRYPT_OPT_RET 'e'
 #define PORT_OPT_RET 'p'
 
 #define USAGE_STR \
-        "lab1b-server --port=PORTNUM [--encrypt=KEYFILE]"
+        "lab1b-server --port=PORTNUM [--encrypt=KEYFILE]\n"
 
 // parse arguments: --encrypt, --port
 static void parse_args(int argc, char **argv, int *port_out,
@@ -112,6 +132,13 @@ static int setup_server_socket(int port)
         if (sockfd < 0)
                 die("socket", errno);
 
+        // reuse port/address
+        // http://stackoverflow.com/a/24194999/3775803
+        int enable = 1;
+        err = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof enable);
+        if (err)
+                die("setsockopt(SO_REUSEADDR)", errno);
+
         memset(&serv_addr, 0, sizeof serv_addr);
         serv_addr.sin_family = AF_INET;
         serv_addr.sin_port = htons(port);
@@ -147,9 +174,13 @@ static void *thread(void *arg)
                 ssize_t ret = read(child_out_fd, buf, 1);
 
                 // EOF from child
-                if (ret == 0)
-                        exit(0); 
-                else if (ret < 0)
+                if (ret == 0) {
+                        reap_child();
+                        if (!error_from_socket)
+                                exit(0);
+                        else
+                                exit(2);
+                } else if (ret < 0)
                         die("thread read", errno);
 
                 // encrypt if we need to
@@ -197,18 +228,16 @@ int main(int argc, char **argv)
                 die("listen", errno);
 
         // accept a connection
-        err = accept(sock_fd, NULL, NULL);
-        if (err)
+        // Note that we leak the listening socket here, but we don't
+        // really care since this is a one-shot server
+        sock_fd = accept(sock_fd, NULL, NULL);
+        if (sock_fd < 0)
                 die("accept", errno);
-        
+
         // setup shell
         if (signal(SIGPIPE, sigpipe_handler) == SIG_ERR)
                 die("signal", errno);
-        
-        err = atexit(reap_child);
-        if (err)
-                die("atexit", err);
-        
+
         // set up two pipes
 #define READ_END 0
 #define WRITE_END 1
@@ -282,8 +311,8 @@ int main(int argc, char **argv)
                 data->sock_fd = sock_fd;
                 data->child_out_fd = child_out_fd;
                 data->key_fname = key_fname;
-                
-                err = pthread_create(&tid, NULL, &thread, &child_out_fd);
+
+                err = pthread_create(&tid, NULL, &thread, data);
                 if (err)
                         die("pthread_create", err);
         }
@@ -295,12 +324,25 @@ int main(int argc, char **argv)
 
                 // read error or EOF from client
                 if (ret <= 0) {
-                        kill(child_pid, SIGTERM);
-                        close(child_in_fd);
-                        close(child_out_fd);
+                        error_from_socket = 1;
+
+                        err = kill(child_pid, SIGTERM);
+                        if (err)
+                                die("kill", errno);
+
+                        err = close(child_in_fd);
+                        if (err)
+                                die("close(child_in_fd)", errno);
+
+                        err = close(child_out_fd);
+                        if (err)
+                                die("close(child_out_fd)", errno);
+
                         if (ret < 0)
                                 fprintf(stderr, "read from socket: %s\n",
                                         strerror(errno));
+
+                        reap_child();
                         exit(2);
                 }
 
@@ -326,5 +368,4 @@ int main(int argc, char **argv)
                 if (ret < 0)
                         die("write to child stdin", errno);
         }
-// spin off thread
 }

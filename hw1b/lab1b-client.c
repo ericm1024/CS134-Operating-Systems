@@ -1,6 +1,6 @@
 // lab1b-client.c
 //
-// Eric Mueller -- emueller@hmc.edu
+// Eric Mueller -- emueller@hmc.edu -- 40160869
 //
 // Implementation of the client for Pomona College CS134's lab1b, as described here:
 // http://www.cs.pomona.edu/classes/cs134/projects/P1B.html
@@ -8,12 +8,6 @@
 #include "common.h"
 
 static struct termios old_termios;
-
-// http://www.ascii-code.com/
-#define CR_CHAR 0x0d
-#define LF_CHAR 0x0a
-#define CTRL_C_CHAR 0x03
-#define CTRL_D_CHAR 0x04
 
 // called at exit: clean up the mess we made of the terminal
 static void termfix()
@@ -26,7 +20,7 @@ static void termfix()
 #define PORT_OPT_RET 'p'
 
 #define USAGE_STR \
-        "lab1b-client --port=PORTNUM [--log=FILE] [--encrypt=KEYFILE]"
+        "lab1b-client --port=PORTNUM [--log=FILE] [--encrypt=KEYFILE]\n"
 
 // parse arguments: --log, --encrypt, --port
 static void parse_args(int argc, char **argv, const char **log_fname_out,
@@ -201,7 +195,7 @@ static void *thread(void *arg)
 
                 // EOF from child
                 if (ret == 0)
-                        exit(2); 
+                        exit(0); 
                 else if (ret < 0)
                         die("thread read", errno);
 
