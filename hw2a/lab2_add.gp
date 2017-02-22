@@ -40,9 +40,9 @@ set output 'lab2_add-1.png'
 
 # grep out only successful (sum=0)  unsynchronized runs
 plot \
-     "< grep add-none lab2_add.csv | grep '0$'" using ($2):($3) \
+     "< grep add-none lab2_add.csv | grep ',0$'" using ($2):($3) \
 	title 'w/o yields' with points lc rgb 'green', \
-     "< grep add-yield-none lab2_add.csv | grep '0$'" using ($2):($3) \
+     "< grep add-yield-none lab2_add.csv | grep ',0$'" using ($2):($3) \
 	title 'w/yields' with points lc rgb 'red'
 
 # per operation times vs # threads/iterations w/ and w/o yielding
@@ -110,4 +110,6 @@ plot \
      "< grep add-m lab2_add.csv" using ($2):($6) \
 	title 'mutex' with linespoints lc rgb 'blue', \
      "< grep add-s lab2_add.csv" using ($2):($6) \
-	title 'spin' with linespoints lc rgb 'orange'
+	title 'spin' with linespoints lc rgb 'orange', \
+     "< grep add-a lab2_add.csv" using ($2):($6) \
+	title 'atomic' with linespoints lc rgb 'purple'

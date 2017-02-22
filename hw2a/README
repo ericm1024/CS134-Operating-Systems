@@ -1,0 +1,111 @@
+NOTE: all threads were run on a 4-socket, 64 core AMD machine.
+/proc/cpuinfo says "AMD Opteron(TM) Processor 6276"
+
+QUESTION 2.1.1 - causing conflicts:
+Why does it take many iterations before errors are seen? Why does a
+significantly smaller number of iterations so seldom fail?
+
+   It takes many iterations before errors are seen because when the number
+   of iterations is small, the race window is much smaller since each thread
+   spends so little time actually executing the add function. As we increase
+   the number of iterations, the window for us to hit the race (i.e. a
+   segment of time where two of our threads are executing concurrently)
+   becomes larger, so we are more likely to get a non-zero final result.
+
+   On this computer, it takes about 1000 iterations to consistently see
+   a non-zero result with 10 threads. With only 100 iterations and 10
+   threads, a non-zero result was almost never observed.
+
+QUESTION 2.1.2 - cost of yielding:
+Why are the --yield runs so much slower? Where is the additional time going?
+Is it possible to get valid per-operation timings if we are using the --yield
+option? If so, explain how. If not, explain why not.
+
+    The --yield runs are so much slower because each call to sched_yield()
+    results in two context switches (one to get scheduled out and put on a
+    run queue, and another to get scheduled back in). The cost of a context
+    switch dwarfs the cost of a single load-add-store sequence, so the
+    additional time is going to these context switches.
+
+    It may be possible to get better per-operation timings if we use the
+    CLOCK_PROCESS_CPUTIME_ID clock type to get the cpu time used by the
+    process or CLOCK_THREAD_CPUTIME_ID to get the cpu time used by each
+    thread. These clocks should not count cpu time used by the operating
+    system, but it is not clear if the context switches caused by
+    sched_yield() is counted against the calling thread's cpu usage.
+
+    With CLOCK_MONOTONIC_RAW (our default), we see that a --yield iteration
+    takes about 170ns. An iteration without yield takes about 20ns. If we
+    temporarily switch our clock type from CLOCK_MONOTONIC_RAW to
+    CLOCK_PROCESS_CPUTIME_ID and divide the resulting time by the number
+    of threads (to get a rough estimate of the per-thread cpu usage), we
+    see that the --yield iterations still take about 170ns, so it appears that
+    the OS is counting the cost of a context switch against the process.
+
+    If we wanted to get more accurate times for the the cost of of an yielding
+    iteration, we could run another test to find out how long a call to
+    sched_yield() takes (assuming we get immediately re-scheduled), then
+    subtract away that overhead. Due to caching effects, however, it may be
+    impossible to accurately determine a universal cost of a sched_yield()
+    call. Thus I claim that it is not possible to accurately obtain the cost
+    (in terms of cpu time spend in userspace) of a single iteration in --yield
+    mode.
+
+QUESTION 2.1.3 - measurement errors:
+Why does the average cost per operation drop with increasing iterations? If
+the cost per iteration is a function of the number of iterations, how do we
+know how many iterations to run (or what the "correct" cost is)?
+
+    The average cost per operation drops as we increase the number of
+    iterations because our timing includes the overhead of spawning threads,
+    which includes the time that threads are not running because they have
+    not been spawned (i.e. as we are going through the loop in
+    main() that calls pthread_create()).
+
+    Since this overhead is roughly constant for a given number of threads and
+    the cost is an average, our cost will be closer to the true average cost
+    as our number of iterations increases, i.e. as the ratio of the time spent
+    performing operations to the time spend spawning threads increases. In
+    short, we can get a more accurate average cost if we use a lot of
+    iterations.
+
+    Finally, if we moved our timing code into the threads and had each thread
+    return the time it spent, we could completely obviate the constant
+    overhead.
+
+QUESTION 2.1.4 - costs of serialization:
+Why do all of the options perform similarly for low numbers of threads? Why
+do the three protected operations slow down as the number of threads rises?
+
+    (Note: for this part, I implemented a 4th synchronization method using
+    __sync_fetch_and_add, i.e. the atomic add intrinsic because I thought it
+    was an important data point. It is accessed with --sync=a, and is not
+    supported with --yield, as there is no way to yield in the middle of
+    an atomic instruction. It turns out to kick everything else's ass)
+
+    The options do not, in fact, perform similarly for low numbers of threads.
+    Everything except the mutex performs similarly, with about 20-25ns/op, but
+    the mutex takes markedly longer at about 40ns/op. This is presumably
+    because pthread_mutex_lock is a non-trivial function, while the other
+    synchronization methods are just a few instructions. Unsynchronized
+    takes around 15ns/op. The non-mutex sync methods all take roughly the
+    same amount of time because they are all doing roughly the same thing: an
+    un-contended atomic hardware instruction.
+
+    The four synchronization methods slow down as the number of threads
+    increases because there is more contention and each thread has to wait.
+    The mutex starts performing somewhat better for large numbers of threads
+    because it is a sleeping lock, so the waiting threads are not causing
+    cacheline bounces (which slow down locks/unlocks).
+
+    The spinlock starts to perform quite poorly as the number of threads
+    increases because of cacheline bouncing and the amount of time spent
+    spinning. It increases roughly linearly up to about 400ns/op at 12
+    threads.
+
+    The atomic add implementation quickly levels out at about 70-80ns/op
+    for 2-12 threads.
+
+    The CAS implementation performs similarly to the spinlock for 1-4 threads,
+    but for 6-12 threads it beats the spinlock. I'm not quite sure why this
+    is. Between 2 and 12 threads CAS gets about 100-150ns/op.
