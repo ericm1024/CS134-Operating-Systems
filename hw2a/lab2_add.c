@@ -173,7 +173,7 @@ int main(int argc, char **argv)
         int ret, err;
         struct timespec start, end, elapsed;
         pthread_t *threads;
-        const clockid_t clock = CLOCK_MONOTONIC_RAW;
+        const clockid_t clock = CLOCK_PROCESS_CPUTIME_ID;//CLOCK_MONOTONIC_RAW;
         add_func_t thread_func = add;
         enum locking_type locking = NONE;
 
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
                 die("clock_gettime failed", errno);
 
         timespec_diff(&start, &end, &elapsed);
-        long long nsec = elapsed.tv_nsec + 1000000000 * elapsed.tv_sec;
+        long long nsec = elapsed.tv_nsec + 1000000000 * (long long)elapsed.tv_sec;
         const size_t nops = 2*nthreads*niters;
         printf("%s%s%s,%lu,%lu,%lu,%lld,%lld,%lld\n",
                "add",
