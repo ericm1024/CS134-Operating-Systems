@@ -20,7 +20,7 @@
 #define YIELD_OPT_RET 'y'
 #define SYNC_OPT_RET 's'
 #define USAGE_STR \
-"lab2_add [--threads=n] [--iterations=n] [--yield] [--sync={m,s,c,a}]"
+"lab2_add [--threads=n] [--iterations=n] [--yield] [--sync={m,s,c,a}]\n"
 
 static const struct option lab2_opts[] =
 {
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
         int ret, err;
         struct timespec start, end, elapsed;
         pthread_t *threads;
-        const clockid_t clock = CLOCK_PROCESS_CPUTIME_ID;//CLOCK_MONOTONIC_RAW;
+        const clockid_t clock = CLOCK_PROCESS_CPUTIME_ID;
         add_func_t thread_func = add;
         enum locking_type locking = NONE;
 
@@ -185,6 +185,9 @@ int main(int argc, char **argv)
                         if (errno) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad thread count", errno);
+                        } else if (nthreads > 255) {
+                                fprintf(stderr, USAGE_STR);
+                                die("main: bad thread count", EINVAL);
                         }
                         break;
 
@@ -194,6 +197,9 @@ int main(int argc, char **argv)
                         if (errno) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad iteration count", errno);
+                        } else if (niters > (1 << 30)) {
+                                fprintf(stderr, USAGE_STR);
+                                die("main: bad iteration count", EINVAL);
                         }
                         break;
 

@@ -9,6 +9,9 @@
  *	only a list head.  The list head is also recognizable because
  *	it has a NULL key pointer.
  */
+
+#pragma once
+
 struct SortedListElement {
 	struct SortedListElement *prev;
 	struct SortedListElement *next;

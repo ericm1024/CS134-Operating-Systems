@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 FILE=lab2_add.csv
 rm -f $FILE
