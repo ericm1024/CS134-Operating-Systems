@@ -1,5 +1,19 @@
-NOTE: all threads were run on a 4-socket, 64 core AMD machine.
-/proc/cpuinfo says "AMD Opteron(TM) Processor 6276"
+NAME: Eric Mueller
+EMAIL: emueller@hmc.edu
+ID: 40160869
+
+This tarball contains the lab2_add.c, the add synchronization driver,
+lab2_list.c, the list synchronization driver, SortedList.{h,c}, the sorted
+list implementation, the Makefile, this README, two shell scripts to generate
+data for plotting, and the two provided gnuplot scripts, one of which has
+been slightly modified to fix a bug (grepping for "0$" matches ",-1000"...).
+
+I implemented another synchronization method for lab2_add: atomic updates.
+It is accessed using --sync=a. It is not compatible with --yield since you
+can't yield during an atomic instruction.
+
+NOTE: all threads were run on a 4-socket, 64 core (i.e. 16 cores per socket)
+AMD machine. /proc/cpuinfo says "AMD Opteron(TM) Processor 6276"
 
 QUESTION 2.1.1 - causing conflicts:
 Why does it take many iterations before errors are seen? Why does a
@@ -13,8 +27,10 @@ significantly smaller number of iterations so seldom fail?
    becomes larger, so we are more likely to get a non-zero final result.
 
    On this computer, it takes about 1000 iterations to consistently see
-   a non-zero result with 10 threads. With only 100 iterations and 10
-   threads, a non-zero result was almost never observed.
+   a non-zero result, while 100 threads very rarely produces a non-zero
+   result. Interestingly enough, this seems to be independent of the number
+   of threads. At 500 iterations, we see a non-zero result somewhat more
+   often when we have more threads.
 
 QUESTION 2.1.2 - cost of yielding:
 Why are the --yield runs so much slower? Where is the additional time going?
@@ -26,21 +42,6 @@ option? If so, explain how. If not, explain why not.
     run queue, and another to get scheduled back in). The cost of a context
     switch dwarfs the cost of a single load-add-store sequence, so the
     additional time is going to these context switches.
-
-    It may be possible to get better per-operation timings if we use the
-    CLOCK_PROCESS_CPUTIME_ID clock type to get the cpu time used by the
-    process or CLOCK_THREAD_CPUTIME_ID to get the cpu time used by each
-    thread. These clocks should not count cpu time used by the operating
-    system, but it is not clear if the context switches caused by
-    sched_yield() is counted against the calling thread's cpu usage.
-
-    With CLOCK_MONOTONIC_RAW (our default), we see that a --yield iteration
-    takes about 170ns. An iteration without yield takes about 20ns. If we
-    temporarily switch our clock type from CLOCK_MONOTONIC_RAW to
-    CLOCK_PROCESS_CPUTIME_ID and divide the resulting time by the number
-    of threads (to get a rough estimate of the per-thread cpu usage), we
-    see that the --yield iterations still take about 170ns, so it appears that
-    the OS is counting the cost of a context switch against the process.
 
     If we wanted to get more accurate times for the the cost of of an yielding
     iteration, we could run another test to find out how long a call to
@@ -65,13 +66,13 @@ know how many iterations to run (or what the "correct" cost is)?
     Since this overhead is roughly constant for a given number of threads and
     the cost is an average, our cost will be closer to the true average cost
     as our number of iterations increases, i.e. as the ratio of the time spent
-    performing operations to the time spend spawning threads increases. In
+    performing adds to the time spend spawning threads increases. In
     short, we can get a more accurate average cost if we use a lot of
     iterations.
 
     Finally, if we moved our timing code into the threads and had each thread
-    return the time it spent, we could completely obviate the constant
-    overhead.
+    return the time it spent, we could somewhat obviate the constant
+    overhead (modulo the affects of caching).
 
 QUESTION 2.1.4 - costs of serialization:
 Why do all of the options perform similarly for low numbers of threads? Why
@@ -81,31 +82,70 @@ do the three protected operations slow down as the number of threads rises?
     __sync_fetch_and_add, i.e. the atomic add intrinsic because I thought it
     was an important data point. It is accessed with --sync=a, and is not
     supported with --yield, as there is no way to yield in the middle of
-    an atomic instruction. It turns out to kick everything else's ass)
+    an atomic instruction. It turns out to be the fastest method)
 
     The options do not, in fact, perform similarly for low numbers of threads.
     Everything except the mutex performs similarly, with about 20-25ns/op, but
-    the mutex takes markedly longer at about 40ns/op. This is presumably
-    because pthread_mutex_lock is a non-trivial function, while the other
-    synchronization methods are just a few instructions. Unsynchronized
-    takes around 15ns/op. The non-mutex sync methods all take roughly the
+    the mutex takes markedly longer at about 40ns/op. Unsynchronized takes
+    around 15ns/op. This is presumably because pthread_mutex_lock is a
+    non-trivial function, while the other synchronization methods are just a
+    few instructions.  The non-mutex sync methods all take roughly the
     same amount of time because they are all doing roughly the same thing: an
     un-contended atomic hardware instruction.
 
     The four synchronization methods slow down as the number of threads
     increases because there is more contention and each thread has to wait.
+
     The mutex starts performing somewhat better for large numbers of threads
     because it is a sleeping lock, so the waiting threads are not causing
-    cacheline bounces (which slow down locks/unlocks).
+    cacheline bounces (which slow down locks/unlocks). Note that we never
+    have contention for CPU time because we are running on a 64 core system
+    and we never use more than 12 threads. The cost per operation grows
+    linearly, but slope decreases when we have more than 4 threads.
 
-    The spinlock starts to perform quite poorly as the number of threads
-    increases because of cacheline bouncing and the amount of time spent
-    spinning. It increases roughly linearly up to about 400ns/op at 12
-    threads.
+    The spinlock starts to perform worse than the mutex as the number of
+    threads increases (crossing at n=8) because of cacheline bouncing and
+    the amount of time spent spinning. It increases roughly linearly from
+    100ns/op at 2 threads to 3000ns/op at 12 threads.
 
-    The atomic add implementation quickly levels out at about 70-80ns/op
-    for 2-12 threads.
-
-    The CAS implementation performs similarly to the spinlock for 1-4 threads,
+    The CAS implementation performs similarly to the spinlock for 1-2 threads,
     but for 6-12 threads it beats the spinlock. I'm not quite sure why this
-    is. Between 2 and 12 threads CAS gets about 100-150ns/op.
+    is. Between 2 and 12 threads CAS increases linearly from 100ns/op to
+    1000ns/op.
+
+    The atomic add implementation is also roughly linear, but it beats
+    all other implementations in all cases. It scales from about 80ns/op at
+    2 threads to 700ns/op at 12 threads.
+
+QUESTION 2.2.1 - scalability of Mutex
+Compare the variation in time per mutex-protected operation vs the number of
+threads in Part-1 (adds) and Part-2 (sorted lists). Comment on the general
+shapes of the curves, and explain why they have this shape. Comment on the
+relative rates of increase and differences in the shapes of the curves, and
+offer an explanation for these differences.
+
+    For both adds and list operations, the time per operation when protected
+    by a mutex scales roughly linearly. For adds, the slope of the mutex's
+    scaling drops sharply (to nearly zero) when we have 4-12 threads. This
+    is probably because the higher contention on the mutex outweighs the
+    extra overhead of the mutex.
+
+    The slope is fairly constant for list operations (i.e. their is no sharp
+    change in slope, as in add operations). This is because each list
+    operation is more expensive than an add operation, so the overhead of
+    the mutex is relatively lower.
+
+QUESTION 2.2.2 - scalability of spin locks
+Compare the variation in time per protected operation vs the number of threads
+for list operations protected by Mutex vs Spin locks. Comment on the general
+shapes of the curves, and explain why they have this shape. Comment on the
+relative rates of increase and differences in the shapes of the curves, and
+offer an explanation for these differences.
+
+    Spinlocks scale worse than mutexes for a high thread counts.
+    For 1 and 2 threads, mutexes and spinlocks are equally fast. For greater
+    than 2 threads, the spinlock's time-per-operation increases at a
+    sharper rate than the mutex's. At 24 threads, spinlocks are about 5x
+    slower. Spinlock slowness here is due to cacheline contention/bouncing
+    across NUMA nodes, which drastically slows down locks and unlocks. There
+    is no CPU contention because we are on a 64-core machine.

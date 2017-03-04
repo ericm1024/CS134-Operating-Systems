@@ -1,4 +1,7 @@
 #!/bin/bash
+# NAME: Eric Mueller
+# EMAIL: emueller@hmc.edu
+# ID: 40160869
 
 FILE=lab2_add.csv
 rm -f $FILE
@@ -42,5 +45,3 @@ do
                    --sync=$method >> $FILE
     done
 done
-
-./lab2_add.gp

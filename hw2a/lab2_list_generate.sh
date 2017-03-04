@@ -1,4 +1,7 @@
 #!/bin/bash
+# NAME: Eric Mueller
+# EMAIL: emueller@hmc.edu
+# ID: 40160869
 
 FILE=lab2_list.csv
 rm -f $FILE
@@ -50,5 +53,3 @@ do
         ./lab2_list --iterations=1000 --threads=$nthreads --sync=$sop >> $FILE
     done
 done
-
-./lab2_list.gp

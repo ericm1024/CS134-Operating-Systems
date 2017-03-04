@@ -1,6 +1,8 @@
 // SortedList.c
 //
-// Eric Mueller -- emueller@hmc.edu
+// NAME: Eric Mueller
+// EMAIL: emueller@hmc.edu
+// ID: 40160869
 //
 // A sorted list implemented to match the interface specification in
 // SortedList.h, a provided file for this assignment.

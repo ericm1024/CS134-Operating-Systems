@@ -1,6 +1,8 @@
 // lab2_list.c
 //
-// Eric Mueller -- emueller@hmc.edu
+// NAME: Eric Mueller
+// EMAIL: emueller@hmc.edu
+// ID: 40160869
 // 
 // Driver for synchronization tests for project 2A for cs134, described here:
 // http://www.cs.pomona.edu/classes/cs134/projects/P2A.html
@@ -124,21 +126,31 @@ static void *s_thread(void *arg)
         int len = SortedList_length(&head);
         spin_unlock(&lock);
 
-        if (len == -1)
-                die("s_thread: SortedList_length", EIO);
+        if (len == -1) {
+                // EIO is the catch-all error code for "something happened".
+                errno = EIO;
+                perror("s_thread: SortedList_length");
+                exit(2);
+        }
 
         for (size_t i = 0; i < niters; ++i) {
                 spin_lock(&lock);
                 SortedListElement_t *n = SortedList_lookup(&head, e[i].key);
                 spin_unlock(&lock);
-                if (n == NULL)
-                        die("s_thread: SortedList_lookup", EIO);
+                if (n == NULL) {
+                        errno = EIO;
+                        perror("s_thread: SortedList_lookup");
+                        exit(2);
+                }
 
                 spin_lock(&lock);
                 int err = SortedList_delete(n);
                 spin_unlock(&lock);
-                if (err)
-                        die("s_thread: SortedList_delete", EIO);
+                if (err) {
+                        errno = EIO;
+                        perror("s_thread: SortedList_delete");
+                        exit(2);
+                }
         }
 
         return NULL;
@@ -160,21 +172,30 @@ static void *m_thread(void *arg)
         int len = SortedList_length(&head);
         pthread_mutex_unlock(&mutex);
 
-        if (len == -1)
-                die("m_thread: SortedList_length", EIO);
+        if (len == -1) {
+                errno = EIO;
+                perror("m_thread: SortedList_length");
+                exit(2);
+        }
 
         for (size_t i = 0; i < niters; ++i) {
                 pthread_mutex_lock(&mutex);
                 SortedListElement_t *n = SortedList_lookup(&head, e[i].key);
                 pthread_mutex_unlock(&mutex);
-                if (n == NULL)
-                        die("m_thread: SortedList_lookup", EIO);
+                if (n == NULL) {
+                        errno = EIO;
+                        perror("m_thread: SortedList_lookup");
+                        exit(2);
+                }
 
                 pthread_mutex_lock(&mutex);
                 int err = SortedList_delete(n);
                 pthread_mutex_unlock(&mutex);
-                if (err)
-                        die("m_thread: SortedList_delete", EIO);
+                if (err) {
+                        errno = EIO;
+                        perror("m_thread: SortedList_delete");
+                        exit(2);
+                }
         }
 
         return NULL;
@@ -189,17 +210,26 @@ static void *n_thread(void *arg)
                 SortedList_insert(&head, e+i);
 
         int len = SortedList_length(&head);
-        if (len == -1)
-                die("n_thread: SortedList_length", EIO);
+        if (len == -1) {
+                errno = EIO;
+                perror("n_thread: SortedList_length");
+                exit(2);
+        }
 
         for (size_t i = 0; i < niters; ++i) {
                 SortedListElement_t *n = SortedList_lookup(&head, e[i].key);
-                if (n == NULL)
-                        die("n_thread: SortedList_lookup", EIO);
+                if (n == NULL) {
+                        errno = EIO;
+                        perror("n_thread: SortedList_lookup");
+                        exit(2);
+                }
 
                 int err = SortedList_delete(n);
-                if (err)
-                        die("n_thread: SortedList_delete", EIO);
+                if (err) {
+                        errno = EIO;
+                        perror("n_thread: SortedList_delete");
+                        exit(2);
+                }
         }
 
         return NULL;
@@ -349,13 +379,13 @@ int main(int argc, char **argv)
         for (size_t i = 0; i < nthreads; ++i)
                 pthread_join(threads[i], NULL);
 
-        int len = SortedList_length(&head);
-        if (len == -1)
-                die("main: SortedList_length", EIO);
-
         err = clock_gettime(clock, &end);
         if (err)
                 die("clock_gettime failed", errno);
+        
+        int len = SortedList_length(&head);
+        if (len == -1)
+                die("main: SortedList_length", EIO);
 
         timespec_diff(&start, &end, &elapsed);
         long long nsec = elapsed.tv_nsec
