@@ -1,0 +1,75 @@
+NAME: Eric Mueller
+EMAIL: emueller@hmc.edu
+ID: 40160869
+
+QUESTION 2.3.1 - Cycles in the basic list implementation:
+Where do you believe most of the cycles are spent in the 1 and 2-thread list
+tests? Why do you believe these to be the most expensive parts of the code?
+Where do you believe most of the time/cycles are being spent in the
+high-thread spin-lock tests? Where do you believe most of the time/cycles
+are being spent in the high-thread mutex tests?
+
+In the 1 and 2-thread list tests I think most of the CPU cycles are going
+to list operations. These are likely the most expensive parts of the code
+because the locks are not under heavy contention and most lock
+implementations are somewhat optimized for the uncontended case. In the high-
+thread spin-lock tests, most of the cycles are spent spinning on the lock.
+On the high-thread mutex tests, most of the cycles are spent doing list
+operations because when a thread doesn't get the lock it goes to sleep instead
+of spinning.
+
+
+QUESTION 2.3.2 - Execution Profiling:
+Where (what lines of code) are consuming most of the cycles when the
+spin-lock version of the list exerciser is run with a large number of threads?
+Why does this operation become so expensive with large numbers of threads?
+
+The most expensive lines of code are in spin_lock() based on the output of
+perf. (run `make profile` and look at lab2_list_perf_report.txt) This
+operation is expensive because there is contention on the lock, and instead
+of sleeping (likea mutex) each thread is spinning trying to win the race for
+the lock. More threads mean more contention and thus more time spent spinning.
+
+
+QUESTION 2.3.3 - Mutex Wait Time:
+Look at the average time per operation (vs # threads) and the average
+wait-for-mutex time (vs #threads). Why does the average lock-wait time rise
+so dramatically with the number of contending threads? Why does the
+completion time per operation rise (less dramatically) with the number of
+contending threads? How is it possible for the wait time per operation to go
+up faster (or higher) than the completion time per operation?
+
+The completion time rises because threads wake up with a cold cache and
+because it includes the CPU time of pthread_mutex_lock(). This includes the
+time it takes to go through the lock's slow path, the time it takes for a
+contex switch into the futex() call, and the time in the kernel to do a hash
+table lookup, grab a thread queue spinlock, and put the thred on the queue.
+At this point the thread's CPU usage is accounted for, i.e. our time for this
+thread stops. When the thread is woken up and scheduled back in the OS starts
+counting its CPU usage again. 
+
+The average lock-wait time rises as we increase the thread count because the
+queue for the lock will always contain every task except the one that
+currently holds the lock. Thus at any given time almost all of the threads
+are sleeping on a queue, so the lock-wait time rises drastically with the
+number of threads.
+
+
+QUESTION 2.3.4 - Performance of Partitioned Lists
+Explain the change in performance of the synchronized methods as a function
+of the number of lists. Should the throughput continue increasing as the
+number of lists is further increased? If not, explain why not. It seems
+reasonable to suggest the throughput of an N-way partitioned list should be
+equivalent to the throughput of a single list with fewer (1/N) threads. Does
+this appear to be true in the above curves? If not, explain why not.
+
+For 1-12 threads and 1-16 lists, more lists increases throughput for all
+numbers of threads. More lists mean a shorter average list length and less
+lock contention, so we get a speedup for all numbers of threads. As we add
+more lists, we get diminishing returns because we get hash collisions, so
+there is still some lock contention.
+
+Are operations contain inserts, lookups, length, and deletes. More lists
+only speeds up inserts and lookups. It slows down length (because more
+locks must be acquired) and it does not affect deletes other than reducing
+lock contention.
