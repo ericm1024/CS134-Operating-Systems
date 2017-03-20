@@ -554,7 +554,7 @@ static void do_command(const char *cmd, struct lab4b_ctx *ctx)
                 val = strtol(eq_ptr, &end, 10);
                 if (errno) {
                         err = errno;
-                } else if (val < 1 || val > (long)UINT_MAX || *end != 0) {
+                } else if (val < 1 || val > 1000 || *end != 0) {
                         err = EINVAL;
                 } else {
                         // period is stored as an unsigned int, hence
@@ -588,7 +588,7 @@ int main(int argc, char **argv)
                         if (errno) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: failed to parse period", errno);
-                        } else if (val < 0 || val > (long)UINT_MAX) {
+                        } else if (val < 0 || val > 1000) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad period", EINVAL);
                         }
