@@ -4,12 +4,15 @@
 // EMAIL: emueller@hmc.edu
 // ID: 40160869
 
+#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <limits.h>
 #include <math.h>
 #include <pthread.h>
-#include <semaphore.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +49,7 @@ static const struct option lab4b_opts[] =
                 .has_arg = required_argument,
                 .flag = NULL,
                 .val = LOG_OPT_RET
-        }
+        },
         {0, 0, 0, 0} // end of array
 };
 
@@ -57,6 +60,8 @@ enum temp_scale {
 
 // the state of the thread that polls the ADC and writes to the log file
 enum thread_state {
+        NOT_SPAWNED,
+        
         // the thread exists and is running, i.e. polling the ADC and and
         // writing to the log file
         RUNNING,
@@ -112,6 +117,8 @@ static void die(const char *reason, int err)
         }
 }
 
+void *button_isr(void *);
+
 // Create and initialize a context structure for this lab given the provided
 // args.
 //
@@ -126,84 +133,73 @@ static void die(const char *reason, int err)
 //
 // We implement this function using the stack-unwinding resource acquisition
 // cleanup patern to cleanly release all resources if we encounter an error.
-static int create_lab4b_ctx(const char *log, const unsigned period,
-                            const enum temp_scale scale, struct lab4b_ctx **out)
+static struct lab4b_ctx *
+create_lab4b_ctx(const char *log, const unsigned period,
+                 const enum temp_scale scale)
 {
         int err = ENOMEM;
-        enum mraa_result_t mrr;
 
-        if (!out || !period)
-                return EINVAL;
+        if (!period)
+                die("create_lab4b_ctx", EINVAL);
         
         struct lab4b_ctx *ctx = calloc(1, sizeof *ctx);
         if (!ctx)
-                return err;
+                die("calloc", ENOMEM);
+
+        ctx->thread = 0;
+
+        err = pthread_mutex_init(&ctx->log_mutex, NULL);
+        if (err)
+                die("pthread_mutex_init", err);
 
         // if we don't have a log file that's okay
         if (log) {
                 ctx->log_fd = open(log, O_WRONLY|O_APPEND|O_CREAT, 0600);
-                if (ctx->log_fd < 0) {
-                        err = errno;
-                        goto out_free;
-                }
-                
+                if (ctx->log_fd < 0)
+                        die("open", errno);
+
         } else {
                 ctx->log_fd = -1;
         }
-
-        err = pthread_mutex_init(&ctx->data_lock, NULL);
+                
+        err = pthread_mutex_init(&ctx->lock, NULL);
         if (err)
-                goto out_close;
+                die("pthread_mutex_init", err);
+
+        ctx->thread_state = NOT_SPAWNED;
 
         ctx->period = period;
         ctx->scale = scale;
 
-        err = sem_init(&ctx->run_sem, 0, 0);
-        if (err) {
-                err = errno;
-                goto out_destroy_dlock;
-        }
-
         ctx->gpio_pin = mraa_gpio_init(3);
-        if (ctx->gpio_pin == NULL) {
-                err = EIO; // no good error here
-                goto out_sem_destroy;
-        }
+        if (ctx->gpio_pin == NULL)
+                die("mraa_gpio_init", EIO);
 
         mrr = mraa_gpio_dir(ctx->gpio_pin, MRAA_GPIO_IN);
-        if (mrr != MRAA_SUCCESS) {
-                err = EIO;
-                goto out_gpio_close;
-        }
+        if (mrr != MRAA_SUCCESS)
+                die("mraa_gpio_dir", EIO);
         
-        mraa_gpio_isr(ctx->gpio_pin)
+        mraa_gpio_isr(ctx->gpio_pin, MRAA_GPIO_EDGE_RISING, button_isr, ctx);
+
         ctx->adc_pin = mraa_aio_init(0);
 
-        *out = ctx;
-        return 0;
-
-
-out_gpio_close:
-        mraa_gpio_close(ctx->gpio_pin);
-out_sem_destroy:
-        sem_destroy(&ctx->run_sem);
-out_destroy_dlock:
-        pthread_mutex_destroy(&ctx->data_lock);
-out_close:
-        close(ctx->log_fd);
-        ctx->log_fd = 0;
-out_free:
-        free(ctx);
-        *out = NULL;
-        return err;
+        return ctx;
 }
 
 // log a formatted message to the log file in the given context.
-// Acquires and releases ctx->data_lock. Returns 0 on success and
+// Acquires and releases ctx->log_mutex. Returns 0 on success and
 // err numbers on failure.
+//
+// NB: the next three functions have __attribute__((format(printf...))) so
+// that the compiler checks our format strings for type sanity. However,
+// it seems likes attributes can only go on declarations, so all three of
+// these are declared right before they're defined.
 static int __log_message(struct lab4b_ctx *ctx, bool to_stdout,
                          const char *fmt, ...)
-        __attribute__ ((format (printf, 3, 4)))
+        __attribute__ ((format (printf, 3, 4)));
+
+static int __log_message(struct lab4b_ctx *ctx, bool to_stdout,
+                         const char *fmt, ...)
 {
         va_list args;        
         int ret = 0;
@@ -215,24 +211,22 @@ static int __log_message(struct lab4b_ctx *ctx, bool to_stdout,
         char *bufptr = buf;
         time_t t;
         struct tm t_parts;
-        struct tm *ret;
+        struct tm *tm_tmp;
         size_t bytes;
         ssize_t sbytes;
-        const sigset_t ss;
                 
         memset(buf, 0, sizeof buf);
-        memset(t_parts, 0, sizeof t_parts);
-        sigfillset(&ss);
+        memset(&t_parts, 0, sizeof t_parts);
 
         // get the time in seconds
-        t = time();
+        t = time(NULL);
         if (t == -1)
                 return errno;
 
         // convert it to parts
-        ret = localtime_r(&t, &t_parts)
-                if (!ret)
-                        return errno;
+        tm_tmp = localtime_r(&t, &t_parts);
+        if (!tm_tmp)
+                return errno;
 
         // write the time
         bytes = strftime(bufptr, size, "%H:%M:%S ", &t_parts);
@@ -278,7 +272,9 @@ static int __log_message(struct lab4b_ctx *ctx, bool to_stdout,
 }
 
 static int log_message(struct lab4b_ctx *ctx, const char *fmt, ...)
-        __attribute__ ((format (printf, 2, 3)))
+        __attribute__ ((format (printf, 2, 3)));
+
+static int log_message(struct lab4b_ctx *ctx, const char *fmt, ...)
 {
         va_list args;
         va_start(args, fmt);
@@ -289,7 +285,10 @@ static int log_message(struct lab4b_ctx *ctx, const char *fmt, ...)
 
 static int log_message_with_stdout(struct lab4b_ctx *ctx,
                                    const char *fmt, ...)
-        __attribute__ ((format (printf, 2, 3)))
+        __attribute__ ((format (printf, 2, 3)));
+
+static int log_message_with_stdout(struct lab4b_ctx *ctx,
+                                   const char *fmt, ...)
 {
         va_list args;
         va_start(args, fmt);
@@ -299,99 +298,169 @@ static int log_message_with_stdout(struct lab4b_ctx *ctx,
 }
 
 // called with ctx->lock held
+static float read_temp(struct lab4b_ctx *ctx)
+{
+        const int B = 4275;
+        const int R0 = 100000;
+        enum temp_scale scale = ctx->scale;
+
+        float R = 1023.0/mraa_aio_read_float(ctx->adc_pin) - 1.0;
+        R = 100000.0*R;
+        float temperature = 1.0/(log(R/100000.0)/B+1/298.15)-273.15;
+
+        // we read in C, so convert to F if necessary
+        if (scale == FAHRENHEIT)
+                temperature = 32.0 + temperature*9.0/5.0;
+
+        return temperature;
+}
+
 static void *thread(void *arg)
 {
         struct lab4b_ctx *ctx = arg;
-        const int B = 4275;
-        const int R0 = 100000;
-        unsigned period;
-        enum temp_scale scale;
         struct timespec ts;
         int err;
 
-        err = clock_gettime(CLOCK_REALTIME, &ts);
-        if (err)
-                die("clock_gettime", errno);
-
+        pthread_mutex_lock(&ctx->lock);
         for (;;) {
+                if (ctx->thread_state == RUNNING) {
+                        clock_gettime(CLOCK_REALTIME, &ts);
+                        ts.tv_sec += ctx->period;
 
-                ts.
+                        log_message_with_stdout(ctx, "%.2f", read_temp(ctx));
 
-                period = ctx->period;
-                scale = ctx->scale;
-
-                float R = 1023.0/mraa_aio_read_float(ctx->adc_pin) - 1.0;
-                R = 100000.0*R;
-                float temperature = 1.0/(log(R/100000.0)/B+1/298.15)-273.15;
-                // we read in C, so convert to F if necessary
-                if (scale == FAHRENHEIT)
-                        temperature = 32.0 + temperature*9.0/5.0;
-
-                log_message_with_stdout(ctx, "%.2f", temperature);
-
-                for (;;) {
-                        pthread_cond_wait(&ctx->cond, &ctx->lock);
-                        if (ctx->thread_state == DEAD)
-                                return NULL;
-                        if (ctx->thread_state == RUNNING)
-                                break;
-                        // else the state is STOPPED, so keep sleeping
+                        // keep waiting on the condition until we timeout or
+                        // the state changes
+                        for (;;) {
+                                err = pthread_cond_timedwait(&ctx->cond,
+                                                             &ctx->lock, &ts);
+                                if (err == ETIMEDOUT
+                                    || ctx->thread_state != RUNNING)
+                                        break;
+                        }
+                } else if (ctx->thread_state == STOPPED) {
+                        // keep waiting until we're not stopped
+                        for (;;) {
+                                pthread_cond_wait(&ctx->cond, &ctx->lock);
+                                if (ctx->thread_state != STOPPED)
+                                        break;
+                        }
+                } else if (ctx->thread_state == DEAD) {
+                        pthread_mutex_unlock(&ctx->lock);
+                        return NULL;
+                } else {
+                        // we should never see thread_state == NOT_SPAWNED in
+                        // this thread
+                        assert(false);
+                }
         }
 }
 
-// spawn the thread but don't let it run
-static int spawn_thread(struct lab4b_ctx *ctx, void *(*func)(void *))
+/*
+ * The follwing three functions carefully update the state of the thread.
+ * These function has to exist and be nasty to avoid a few very rare but
+ * gross races.
+ *
+ * 1. We need to make sure that the thread does not log a data point after
+ *    we log our shutdown message.
+ *
+ * 2. We need to make sure that if the command-processing thread and the
+ *    button interrupt handler run at the same time, they do not deadlock
+ *    or print the exit message more than once.
+ *
+ * 3. We need to make sure that if the button interrupt handler is called
+ *    before the thread is spawned, the thread does not get spawned.
+ *
+ * Our state diagram is thus: 
+ *                        ________________ 
+ *                       /       \        \ 
+ *                      /         v        v
+ * NOT_SPAWNED --> RUNNING    STOPPED --> DEAD
+ *      \               ^         /        ^
+ *       \               \_______/        /
+ *        \______________________________/
+ *
+ * Note: a transition directly from NOT_SPAWNED to dead means that
+ * the shutdown button was pressed before we were able to spawn
+ * the thread. Unlikely, but possible.
+ */
+static enum thread_state start_thread(struct lab4b_ctx *ctx)
 {
-        if (ctx->thread != 0)
-                return -EINVAL;
-
-        int err = pthread_create(&ctx->thread, NULL, func, ctx);
-}
-
-static int __mod_thread_state(struct lab4b_ctx *ctx,
-                              const enum thread_state new)
-{
-        int err = 0;
-        
         pthread_mutex_lock(&ctx->lock);
-        const enum thread_state current = ctx->thread_state;
+        enum thread_state current = ctx->thread_state;
+        int err;
 
-        // make sure the caller is actually requesting a meaningful state
-        // change. Our state diagram is thus: 
-        //          _______  
-        //         /       \
-        //        /         v
-        // --> RUNNING    STOPPED --> DEAD
-        //        ^         /
-        //         \_______/
-        //         
-        if ((current != new) && (current != DEAD)) {
-                ctx->thread_state = new;
+        if (current == DEAD)
+                goto out_unlock;
+
+        if (current == NOT_SPAWNED) {
+                err = pthread_create(&ctx->thread, NULL, thread, ctx);
+                if (err)
+                        die("pthread_create", err);
+
+        } else if (current == STOPPED) {
                 err = pthread_cond_signal(&ctx->cond);
+                if (err)
+                        die("pthread_cond_signal", err);
+        }
+
+        // mark that the thread is running
+        ctx->thread_state = RUNNING;
+
+out_unlock:
+        pthread_mutex_unlock(&ctx->lock);
+        return current;
+}
+
+static enum thread_state stop_thread(struct lab4b_ctx *ctx)
+{
+        pthread_mutex_lock(&ctx->lock);
+        enum thread_state current = ctx->thread_state;
+        int err;
+
+        if (current == DEAD) 
+                goto out_unlock;
+
+        if (current == RUNNING) {
+                err = pthread_cond_signal(&ctx->cond);
+                if (err)
+                        die("pthread_cond_signal", err);
+        }
+
+        // mark that the thread is stopped
+        ctx->thread_state = STOPPED;
+        
+out_unlock:
+        pthread_mutex_unlock(&ctx->lock);
+        return current;
+}
+
+static enum thread_state kill_thread(struct lab4b_ctx *ctx)
+{
+        pthread_mutex_lock(&ctx->lock);
+        enum thread_state current = ctx->thread_state;
+        int err;
+
+        if (current == DEAD) {
                 pthread_mutex_unlock(&ctx->lock);
+                return current;
+        }
+        
+        // we have to do a bit of a dance here:
+        // mark the thread as dead, signal it, drop the lock,
+        // and wait for it to exit
+        ctx->thread_state = DEAD;
+        err = pthread_cond_signal(&ctx->cond);
+        if (err)
+                die("pthread_cond_signal", err);
+        
+        pthread_mutex_unlock(&ctx->lock);
+        
+        err = pthread_join(ctx->thread, NULL);
+        if (err)
+                die("pthread_join", err);
 
-                // if the thread is now dead, reap it.
-                if (new == DEAD)
-                        err = pthread_join(&ctx->thread, NULL);
-        } else
-                pthread_mutex_unlock(&ctx->lock);
-
-        return err;
-}
-
-static int start_thread(struct lab4b_ctx *ctx)
-{
-        return __mod_thread_state(ctx, RUNNING);
-}
-
-static int stop_thread(struct lab4b_ctx *ctx)
-{
-        return __mod_thread_state(ctx, STOPPED);
-}
-
-static int kill_thread(struct lab4b_ctx *ctx)
-{
-        return __mod_thread_state(ctx, DEAD);
+        return current;
 }
 
 // This function gets called when the button is pressed. The documentation
@@ -406,19 +475,22 @@ static int kill_thread(struct lab4b_ctx *ctx)
 static void *button_isr(void *arg)
 {
         struct lab4b_ctx *ctx = arg;
-        int err;
+        enum thread_state prev_state;
 
-        err = stop_thread();
-        if (err)
-                die("button_isr", err);
+        prev_state = kill_thread(ctx);
 
-        log_message(ctx, "SHUTDOWN", cmd);
-        exit(0);
+        // if we won the race to kill the thread, print the shutdown message
+        // and exit
+        if (prev_state != DEAD) {
+                log_message(ctx, "SHUTDOWN");
+                exit(0);
+        }
+
+        return NULL;
 }
 
 // parse a command and execute it
-// return 0 on success, error number on failure
-static int do_command(const char *cmd, struct lab4b_ctx *ctx)
+static void do_command(const char *cmd, struct lab4b_ctx *ctx)
 {
         int err = 0;
 
@@ -426,13 +498,25 @@ static int do_command(const char *cmd, struct lab4b_ctx *ctx)
 
         if (strcmp(cmd, "OFF") == 0) {
                 // log a SHUTDOWN message and exit.
-                kill_thread(ctx);
-                log_message(ctx, "SHUTDOWN", cmd);
-                exit(0);
+                enum thread_state prev_state = kill_thread(ctx);
+
+                // if we won the race to kill the thread, print the shutdown
+                // msg and exit
+                if (prev_state != DEAD) {
+                        log_message(ctx, "SHUTDOWN");
+                        exit(0);
+                } else {
+                        // otherwise we don't want to continue processing
+                        // commands, so just chill until the ISR exits the
+                        // program
+                        for (;;)
+                                sched_yield();
+                }
+
         } else if (strcmp(cmd, "STOP") == 0) {
-                return stop_thread(ctx);
+                stop_thread(ctx);
         } else if (strcmp(cmd, "START") == 0) {
-                return start_thread(ctx);
+                start_thread(ctx);
         } else if (strncmp(cmd, "SCALE=", strlen("SCALE=")) == 0) {
                 char *eq_ptr;
                 enum temp_scale scale;
@@ -467,7 +551,7 @@ static int do_command(const char *cmd, struct lab4b_ctx *ctx)
                 val = strtol(eq_ptr, &end, 10);
                 if (errno) {
                         err = errno;
-                } else if (val < 1 || val > UINT_MAX || *end != NULL) {
+                } else if (val < 1 || val > UINT_MAX || *end != 0) {
                         err = EINVAL;
                 } else {
                         // period is stored as an unsigned int, hence
@@ -484,8 +568,6 @@ static int do_command(const char *cmd, struct lab4b_ctx *ctx)
         // them and make them try again, we don't want to return an error
         if (err)
                 fprintf(stderr, "Invalid command: %s\n", cmd);
-
-        return 0;
 }
 
 int main(int argc, char **argv)
@@ -495,7 +577,7 @@ int main(int argc, char **argv)
         enum temp_scale scale = FAHRENHEIT;
         const char *logname = NULL;
         
-        while (-1 != (ret = getopt_long(argc, argv, "", labb_opts, NULL))) {
+        while (-1 != (ret = getopt_long(argc, argv, "", lab4_opts, NULL))) {
                 switch (ret) {
                 case PERIOD_OPT_RET:
                         errno = 0;
@@ -531,35 +613,15 @@ int main(int argc, char **argv)
 
         }
 
-        struct lab4b_ctx *ctx;
+        struct lab4b_ctx *ctx = create_lab4b_ctx(logname, period, scale);
 
-        err = create_lab4b_ctx(logname, period, scale, &ctx);
-        if (err)
-                die("failed to create context", err);
-
-        err = spawn_thread(ctx, thread_func);
-        if (err)
-                die("failed to spawn thread", err);
-
-        err = start_thread(ctx);
-        if (err)
-                die("failed to start thread");
+        start_thread(ctx);
 
         for (;;) {
                 char *line = readline(NULL);
-                err = do_command(cmd, ctx);
+                int err = do_command(line, ctx);
                 free(line);
                 if (err)
                         die("do_command", err);
         }
 }
-
-
-// thread:
-//   run_sem
-//     data_lock
-
-// stop_thread:
-//   run_sem
-//     data_lock
-
