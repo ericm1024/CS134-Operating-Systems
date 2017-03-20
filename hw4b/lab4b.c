@@ -174,7 +174,7 @@ create_lab4b_ctx(const char *log, const unsigned period,
         ctx->period = period;
         ctx->scale = scale;
 
-        ctx->gpio_pin = mraa_gpio_init(3);
+        ctx->gpio_pin = mraa_gpio_init(D3);
         if (ctx->gpio_pin == NULL)
                 die("mraa_gpio_init", EIO);
 
@@ -184,7 +184,9 @@ create_lab4b_ctx(const char *log, const unsigned period,
         
         mraa_gpio_isr(ctx->gpio_pin, MRAA_GPIO_EDGE_RISING, button_isr, ctx);
 
-        ctx->adc_pin = mraa_aio_init(0);
+        ctx->adc_pin = mraa_aio_init(A0);
+        if (ctx->adc_pin == NULL)
+                die("mraa_aio_init", EIO);
 
         return ctx;
 }
