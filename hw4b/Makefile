@@ -5,8 +5,8 @@
 TARBALL=lab4b-40160869.tar.gz
 TARGETS=lab4b
 CC=gcc
-CCFLAGS=-Wall -Wextra -std=gnu99 -g
-LDFLAGS=-pthread
+CFLAGS=-Wall -Wextra -std=gnu99 -g
+LDFLAGS=-pthread -lmraa -lm -lreadline
 
 build: $(TARGETS)
 

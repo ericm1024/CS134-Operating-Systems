@@ -25,6 +25,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <mraa.h>
+
 #define PERIOD_OPT_RET 'p'
 #define SCALE_OPT_RET 's'
 #define LOG_OPT_RET 'l'
@@ -117,7 +119,7 @@ static void die(const char *reason, int err)
         }
 }
 
-void *button_isr(void *);
+static void button_isr(void *);
 
 // Create and initialize a context structure for this lab given the provided
 // args.
@@ -138,6 +140,7 @@ create_lab4b_ctx(const char *log, const unsigned period,
                  const enum temp_scale scale)
 {
         int err = ENOMEM;
+	mraa_result_t mrr;	
 
         if (!period)
                 die("create_lab4b_ctx", EINVAL);
@@ -472,7 +475,7 @@ static enum thread_state kill_thread(struct lab4b_ctx *ctx)
 // 
 // https://github.com/intel-iot-devkit/mraa/blob/master/src/gpio/gpio.c#L378
 // 
-static void *button_isr(void *arg)
+static void button_isr(void *arg)
 {
         struct lab4b_ctx *ctx = arg;
         enum thread_state prev_state;
@@ -485,8 +488,6 @@ static void *button_isr(void *arg)
                 log_message(ctx, "SHUTDOWN");
                 exit(0);
         }
-
-        return NULL;
 }
 
 // parse a command and execute it
@@ -551,7 +552,7 @@ static void do_command(const char *cmd, struct lab4b_ctx *ctx)
                 val = strtol(eq_ptr, &end, 10);
                 if (errno) {
                         err = errno;
-                } else if (val < 1 || val > UINT_MAX || *end != 0) {
+                } else if (val < 1 || val > (long)UINT_MAX || *end != 0) {
                         err = EINVAL;
                 } else {
                         // period is stored as an unsigned int, hence
@@ -577,7 +578,7 @@ int main(int argc, char **argv)
         enum temp_scale scale = FAHRENHEIT;
         const char *logname = NULL;
         
-        while (-1 != (ret = getopt_long(argc, argv, "", lab4_opts, NULL))) {
+        while (-1 != (ret = getopt_long(argc, argv, "", lab4b_opts, NULL))) {
                 switch (ret) {
                 case PERIOD_OPT_RET:
                         errno = 0;
@@ -585,7 +586,7 @@ int main(int argc, char **argv)
                         if (errno) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad period", errno);
-                        } else if (val < 0 || val > UINT_MAX) {
+                        } else if (val < 0 || val > (long)UINT_MAX) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad period", EINVAL);
                         }
@@ -619,9 +620,7 @@ int main(int argc, char **argv)
 
         for (;;) {
                 char *line = readline(NULL);
-                int err = do_command(line, ctx);
+                do_command(line, ctx);
                 free(line);
-                if (err)
-                        die("do_command", err);
         }
 }
