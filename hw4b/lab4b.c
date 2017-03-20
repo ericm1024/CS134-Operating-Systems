@@ -174,7 +174,7 @@ create_lab4b_ctx(const char *log, const unsigned period,
         ctx->period = period;
         ctx->scale = scale;
 
-        ctx->gpio_pin = mraa_gpio_init(D3);
+        ctx->gpio_pin = mraa_gpio_init(3);
         if (ctx->gpio_pin == NULL)
                 die("mraa_gpio_init", EIO);
 
@@ -184,7 +184,7 @@ create_lab4b_ctx(const char *log, const unsigned period,
         
         mraa_gpio_isr(ctx->gpio_pin, MRAA_GPIO_EDGE_RISING, button_isr, ctx);
 
-        ctx->adc_pin = mraa_aio_init(A0);
+        ctx->adc_pin = mraa_aio_init(0);
         if (ctx->adc_pin == NULL)
                 die("mraa_aio_init", EIO);
 
@@ -587,7 +587,7 @@ int main(int argc, char **argv)
                         long val = strtol(optarg, NULL, 10);
                         if (errno) {
                                 fprintf(stderr, USAGE_STR);
-                                die("main: bad period", errno);
+                                die("main: failed to parse period", errno);
                         } else if (val < 0 || val > (long)UINT_MAX) {
                                 fprintf(stderr, USAGE_STR);
                                 die("main: bad period", EINVAL);
