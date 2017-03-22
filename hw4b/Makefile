@@ -5,13 +5,13 @@
 TARBALL=lab4b-40160869.tar.gz
 TARGETS=lab4b
 CC=gcc
-CFLAGS=-Wall -Wextra -std=gnu99 -g
-LDFLAGS=-pthread -lmraa -lm -lreadline
+CFLAGS=-Wall -Wextra -std=c99 -g
+LDFLAGS=-pthread -lmraa -lm
 
 build: $(TARGETS)
 
 lab4b: lab4b.c
-	$(CC) $(CCFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 clean:
 	rm -rf $(TARGETS)

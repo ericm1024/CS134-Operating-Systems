@@ -4,12 +4,16 @@
 // EMAIL: emueller@hmc.edu
 // ID: 40160869
 
+#define _POSIX_C_SOURCE 199309L
+#define _GNU_SOURCE
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <limits.h>
 #include <math.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -23,7 +27,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include <mraa.h>
+//#include <mraa.h>
 
 #define PERIOD_OPT_RET 'p'
 #define SCALE_OPT_RET 's'
@@ -182,16 +186,15 @@ static int log_message_with_stdout(const char *fmt, ...)
         return ret;
 }
 
-// called with ctx->lock held
-static float read_temp(struct lab4b_ctx *ctx)
+static float read_temp()
 {
         const int B = 4275;
-        const int R0 = 100000;
-        enum temp_scale scale = ctx->scale;
 
-        float R = 1023.0/mraa_aio_read_float(ctx->adc_pin) - 1.0;
+        float a = mraa_aio_read_float(adc_pin);
+        
+        float R = 1023.0/a - 1.0;
         R = 100000.0*R;
-        float temperature = 1.0/(log(R/100000.0)/B+1/298.15)-273.15;
+        float temperature=1.0/(log(R/100000.0)/B+1/298.15)-273.15;
 
         // we read in C, so convert to F if necessary
         if (scale == FAHRENHEIT)
@@ -216,7 +219,6 @@ static void do_command(const char *cmd)
                 reading = true;
         } else if (strncmp(cmd, "SCALE=", strlen("SCALE=")) == 0) {
                 char *eq_ptr;
-                enum temp_scale scale;
 
                 eq_ptr = strchr(cmd, '=');
                 ++eq_ptr;
@@ -231,7 +233,6 @@ static void do_command(const char *cmd)
         } else if (strncmp(cmd, "PERIOD=", strlen("PERIOD=")) == 0) {
                 char *eq_ptr;
                 char *end;
-                unsigned period;
                 long val;
 
                 eq_ptr = strchr(cmd, '=');
@@ -271,7 +272,7 @@ static void timespec_diff(struct timespec *start, struct timespec *stop,
 
 int main(int argc, char **argv)
 {
-        int ret;
+        int ret, err;
         mraa_result_t mrr;
         char buf[512];
 
@@ -304,8 +305,7 @@ int main(int argc, char **argv)
                         break;
 
                 case LOG_OPT_RET:
-                        const char *logname = optarg;
-                        log_fd = open(log, O_WRONLY|O_APPEND|O_CREAT, 0600);
+                        log_fd = open(optarg, O_WRONLY|O_APPEND|O_CREAT,0600);
                         if (log_fd < 0)
                                 die("open", errno);
                         break;
@@ -388,9 +388,9 @@ int main(int argc, char **argv)
                      || (now.tv_sec == read_time.tv_sec
                          && now.tv_nsec >= read_time.tv_nsec))) {
 
-                        // read adc
-                        
-                        // log adc value
+                        // read ad
+                        float temp = read_temp();
+                        log_message_with_stdout("%.1f", temp);
 
                         // incrememt period
                         read_time.tv_sec += period;
@@ -401,7 +401,7 @@ int main(int argc, char **argv)
                 timespec_diff(&now, &read_time, &tmo);
                 
                 // sleep until IO
-                err = ppoll(&fds, 2, &tmo, NULL);
+                err = ppoll(fds, 2, &tmo, NULL);
                 if (err)
                         die("ppoll", errno);
 
