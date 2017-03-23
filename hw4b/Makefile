@@ -20,5 +20,5 @@ check: $(TARGETS)
 	@echo "make check currently does nothing"
 
 dist: $(TARBALL)
-$(TARBALL): lab4b.c README
-	tar -czvf $@ lab4b.c README
+$(TARBALL): lab4b.c README Makefile
+	tar -czvf $@ lab4b.c README Makefile
