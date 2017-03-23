@@ -27,7 +27,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-//#include <mraa.h>
+#include <mraa.h>
 
 #define PERIOD_OPT_RET 'p'
 #define SCALE_OPT_RET 's'
@@ -90,15 +90,10 @@ static struct timespec read_time;
 // that the compiler checks our format strings for type sanity. However,
 // it seems likes attributes can only go on declarations, so all three of
 // these are declared right before they're defined.
-static int __log_message(bool to_stdout, const char *fmt, ...)
-        __attribute__ ((format (printf, 2, 3)));
 
-static int __log_message(bool to_stdout, const char *fmt, ...)
+static int __log_message(bool to_stdout, const char *fmt, va_list args)
 {
-        va_list args;        
         int ret = 0;
-
-        va_start(args, fmt);
 
         char buf[512];
         size_t size = sizeof buf;
@@ -158,7 +153,6 @@ static int __log_message(bool to_stdout, const char *fmt, ...)
                 if (sbytes < 0)
                         ret = errno;
         }
-        va_end(args);
         return ret;
 }
 
@@ -188,13 +182,13 @@ static int log_message_with_stdout(const char *fmt, ...)
 
 static float read_temp()
 {
-        const int B = 4275;
+	const int B = 4275;
+	float a = mraa_aio_read_float(adc_pin);
 
-        float a = mraa_aio_read_float(adc_pin);
-        
-        float R = 1023.0/a - 1.0;
-        R = 100000.0*R;
-        float temperature=1.0/(log(R/100000.0)/B+1/298.15)-273.15;
+	float R = 1.0/a-1.0;
+    	R = 100000.0*R;
+
+    	float temperature=1.0/(log(R/100000.0)/B+1/298.15)-273.15;
 
         // we read in C, so convert to F if necessary
         if (scale == FAHRENHEIT)
@@ -211,12 +205,17 @@ static void do_command(const char *cmd)
         log_message("%s", cmd);
 
         if (strcmp(cmd, "OFF") == 0) {
-                log_message("SHUTDOWN");
+                log_message_with_stdout("SHUTDOWN");
                 exit(0);
         } else if (strcmp(cmd, "STOP") == 0) {
                 reading = false;
         } else if (strcmp(cmd, "START") == 0) {
-                reading = true;
+		if (!reading) {
+                	reading = true;
+			err = clock_gettime(CLOCK_MONOTONIC, &read_time);
+			if (err)
+				die("clock_gettime", errno);
+		}
         } else if (strncmp(cmd, "SCALE=", strlen("SCALE=")) == 0) {
                 char *eq_ptr;
 
@@ -325,6 +324,10 @@ int main(int argc, char **argv)
         if (mrr != MRAA_SUCCESS)
                 die("mraa_gpio_dir", EIO);
 
+	mrr = mraa_gpio_edge_mode(button_pin, MRAA_GPIO_EDGE_RISING);
+	if (mrr != MRAA_SUCCESS)
+		die("mraa_gpio_edge_mode", EIO);
+
         // open the gpio pin file directly so we can poll(2) it
         snprintf(buf, sizeof buf, "/sys/class/gpio/gpio%d/value",
                  mraa_gpio_get_pin_raw(button_pin));
@@ -371,7 +374,7 @@ int main(int argc, char **argv)
                         },
                         {
                                 .fd = button_fd,
-                                .events = POLLIN,
+                                .events = POLLPRI,
                                 .revents = 0
                         }
                 };
@@ -389,8 +392,9 @@ int main(int argc, char **argv)
                          && now.tv_nsec >= read_time.tv_nsec))) {
 
                         // read ad
-                        float temp = read_temp();
-                        log_message_with_stdout("%.1f", temp);
+                        double temp = read_temp();
+			printf("%s: %f\n", __func__, temp);
+                        log_message_with_stdout("%s: %f", __func__, temp);
 
                         // incrememt period
                         read_time.tv_sec += period;
@@ -401,13 +405,13 @@ int main(int argc, char **argv)
                 timespec_diff(&now, &read_time, &tmo);
                 
                 // sleep until IO
-                err = ppoll(fds, 2, &tmo, NULL);
-                if (err)
+                ret = ppoll(fds, 2, reading ? &tmo : NULL, NULL);
+                if (ret < 0)
                         die("ppoll", errno);
 
                 // process button
-                if (fds[1].revents & POLLIN) {
-                        log_message("SHUTDOWN");
+                if (fds[1].revents & POLLPRI) {
+                        log_message_with_stdout("SHUTDOWN");
                         exit(0);
                 }
 

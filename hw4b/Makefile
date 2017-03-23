@@ -5,7 +5,7 @@
 TARBALL=lab4b-40160869.tar.gz
 TARGETS=lab4b
 CC=gcc
-CFLAGS=-Wall -Wextra -std=c99 -g
+CFLAGS=-Wall -pedantic -Wextra -Wformat -std=c99 -g
 LDFLAGS=-pthread -lmraa -lm
 
 build: $(TARGETS)
