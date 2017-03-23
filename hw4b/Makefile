@@ -16,6 +16,9 @@ lab4b: lab4b.c
 clean:
 	rm -rf $(TARGETS)
 
+check: $(TARGETS)
+	@echo "make check currently does nothing"
+
 dist: $(TARBALL)
-$(TARBALL): lab4b.c
-	tar -czvf $@ lab4b.c
+$(TARBALL): lab4b.c README
+	tar -czvf $@ lab4b.c README

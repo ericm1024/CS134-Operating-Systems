@@ -393,8 +393,7 @@ int main(int argc, char **argv)
 
                         // read ad
                         double temp = read_temp();
-			printf("%s: %f\n", __func__, temp);
-                        log_message_with_stdout("%s: %f", __func__, temp);
+                        log_message_with_stdout("%.1f", temp);
 
                         // incrememt period
                         read_time.tv_sec += period;
