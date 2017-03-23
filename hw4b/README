@@ -1,0 +1,15 @@
+NAME: Eric Mueller
+EMAIL: emueller@hmc.edu
+ID: 40160869
+
+My code uses ppoll(2) to wait on standard in and the sysfs file for the
+button's GPIO pin. This is inspired by the the mraa library's implementation
+of interrupt handlers. To be clear, I heavily referenced their source code,
+found here:
+
+https://github.com/intel-iot-devkit/mraa/blob/master/src/gpio/gpio.c
+
+The code is otherwise non-remarkable.
+
+I did not implement a smoke check test because I am lazy/it seemed like more
+effort than it was worth.

@@ -1,4 +1,4 @@
-// lab2b.c
+// lab4b.c
 //
 // NAME: Eric Mueller
 // EMAIL: emueller@hmc.edu
