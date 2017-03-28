@@ -15,9 +15,6 @@ lab3a: lab3a.c
 clean:
 	rm -rf $(TARGETS)
 
-check: build
-	diff $(./lab3a trivial.img) trivial.csv
-
 dist: $(TARBALL)
-$(TARBALL): lab3a.c README Makefile
-	tar -czvf $@ lab4b.c README Makefile trivial.img trivial.csv
+$(TARBALL): lab3a.c README Makefile ext2_fs.h
+	tar -czvf $@ lab3a.c README Makefile ext2_fs.h
