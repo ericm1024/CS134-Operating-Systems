@@ -386,7 +386,8 @@ int main(int argc, char **argv)
                         printf("%hu,", i->i_gid);
                         printf("%hu,", i->i_links_count);
 
-                        int msh = 0; //month shift hackery, don't worry about it
+                        // month shift hackery, don't worry about it
+                        int msh = 1;
                         time_t tmp = i->i_ctime;
                         struct tm *t = gmtime(&tmp);
                         printf("%02d/%02d/%02d %02d:%02d:%02d,",
