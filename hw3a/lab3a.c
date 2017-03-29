@@ -208,7 +208,7 @@ static void __summarize_indirect(struct ext2_super_block *sb,
         for (size_t i = 0; i < ppb; ++i) {
                 __u32 ptr = blk[i];
                 if (ptr == 0)
-                        break;
+                        continue;
 
                 if (lvl != 1)
                         __summarize_indirect(sb, in, inode_nr, img, blk[i],
