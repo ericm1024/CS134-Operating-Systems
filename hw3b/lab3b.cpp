@@ -278,17 +278,17 @@ int main(int argc, char **argv)
                 auto fields = split(line);
                 
                 uint32_t dir_ino = atol(fields.at(1).c_str());
-                uint32_t referent_i = atol(fields.at(3).c_str());
+                uint32_t referent_ino = atol(fields.at(3).c_str());
 
-                i_counts.at(dir_ino) += 1;
-                i_counts.at(referent_i) += 1;
+                //i_counts.at(dir_ino) += 1;
+                i_counts.at(referent_ino) += 1;
 
                 auto name = fields.at(6);
                 const char *state = NULL;
                 
-                if (referent_i > nr_inodes)
+                if (referent_ino > nr_inodes)
                         state = "INVALID";
-                else if (i_alloc_bmp.at(referent_i) == false)
+                else if (i_alloc_bmp.at(referent_ino) == false)
                         state = "UNALLOCATED";
 
                 if (state) {
@@ -296,16 +296,16 @@ int main(int argc, char **argv)
                                dir_ino,
                                name.c_str(),
                                state,
-                               referent_i);
+                               referent_ino);
                 }
 
                 // finding the parent inode number is annoying so lol I'm
                 // not gonna bother
-                if (name == "'.'" && referent_i != dir_ino) {
+                if (name == "'.'" && referent_ino != dir_ino) {
                         printf("DIRECTORY INODE %u NAME %s LINK TO INODE %u SHOULD BE %u\n",
                                dir_ino,
                                name.c_str(),
-                               referent_i,
+                               referent_ino,
                                dir_ino);
                 }
         }
