@@ -3,4 +3,10 @@ EMAIL: emueller@hmc.edu
 ID: 40160869
 
 This submission contains a Makefile, this README, and a single C++ source file
-lab3b.cpp.
+lab3b.cpp. This is assignment is full of hacks, unnecessary data structures,
+unreadable code, overcomplications, oversimplifications, inefficiency, special
+cases, and otherwise lots of bullshittery, but damnit it passes the sanity check
+and I'm graduating in 3.5 weeks so I'm calling it good enough.
+
+Also this is a day late because HMC had no classes Monday and Tuesday so I took
+the liberty of being lazy. I belive this is the first slip day I have used.

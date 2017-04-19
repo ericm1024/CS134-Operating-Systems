@@ -186,7 +186,7 @@ do
 			cp $FILEBASE/$pfx$b.$s .
 			ret=$?
 		else
-			wget $BASE/$pfx$b.$s > /dev/null
+			wget $BASE/$pfx$b.$s 2> /dev/null
 			ret=$?
 		fi
 		if [ $ret -ne 0 ]; then

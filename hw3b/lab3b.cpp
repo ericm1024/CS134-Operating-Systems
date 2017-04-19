@@ -52,7 +52,8 @@ int main(int argc, char **argv)
 {
         size_t nr_blks = 0;
         size_t nr_inodes = 0;
-        size_t blk_size = 0;
+        uint32_t blk_size = 0;
+        size_t first_free_ino = 0;
         size_t i_size = 0;
         
         // bitmap for allocated blocks. Indexed by block number.
@@ -72,6 +73,9 @@ int main(int argc, char **argv)
 
         // given i_links_count count we find in each inode
         vector<uint32_t> i_counts_given;
+
+        // did we see this inode?
+        vector<bool> i_seen;
 
         if (argc != 2) {
                 cerr << "usage: ./lab3b <filename>" << endl;
@@ -95,6 +99,7 @@ int main(int argc, char **argv)
                 nr_inodes = atol(fields.at(2).c_str());
                 blk_size = atol(fields.at(3).c_str());
                 i_size = atol(fields.at(4).c_str());
+                first_free_ino = atol(fields.at(7).c_str());
                 found_sb = true;
                 break;
         }
@@ -111,6 +116,7 @@ int main(int argc, char **argv)
         i_alloc_bmp.resize(nr_inodes + 1);
         i_counts.resize(nr_inodes + 1);
         i_counts_given.resize(nr_inodes + 1);
+        i_seen.resize(nr_inodes + 1);
 
         // fill our allocation bitmaps with true (allocated) so
         // we can then wipe them with {B,I}FREE entries, and fill our inode
@@ -119,6 +125,7 @@ int main(int argc, char **argv)
         fill(i_alloc_bmp.begin(), i_alloc_bmp.end(), true);
         fill(i_counts.begin(), i_counts.end(), 0);
         fill(i_counts_given.begin(), i_counts_given.end(), 0);
+        fill(i_seen.begin(), i_seen.end(), false);
 
         // go back to the beginning of the file
         file.clear();
@@ -202,6 +209,8 @@ int main(int argc, char **argv)
                 if (fields.at(0) == "INODE") {
                         uint32_t ino = atol(fields.at(1).c_str());
 
+                        i_seen.at(ino) = true;
+
                         // while we're here, store the refcount we found in
                         // this inode
                         uint32_t count = atol(fields.at(6).c_str());
@@ -281,7 +290,8 @@ int main(int argc, char **argv)
                 uint32_t referent_ino = atol(fields.at(3).c_str());
 
                 //i_counts.at(dir_ino) += 1;
-                i_counts.at(referent_ino) += 1;
+                if (referent_ino < i_counts.size())
+                        i_counts.at(referent_ino) += 1;
 
                 auto name = fields.at(6);
                 const char *state = NULL;
@@ -291,7 +301,7 @@ int main(int argc, char **argv)
                 else if (i_alloc_bmp.at(referent_ino) == false)
                         state = "UNALLOCATED";
 
-                if (state) {
+                if (state && referent_ino != 2) {
                         printf("DIRECTORY INODE %u NAME %s %s INODE %u\n",
                                dir_ino,
                                name.c_str(),
@@ -301,7 +311,8 @@ int main(int argc, char **argv)
 
                 // finding the parent inode number is annoying so lol I'm
                 // not gonna bother
-                if (name == "'.'" && referent_ino != dir_ino) {
+                if ((name == "'.'" && referent_ino != dir_ino)
+                    || (name == "'..'" && dir_ino == 2 && referent_ino != dir_ino)) {
                         printf("DIRECTORY INODE %u NAME %s LINK TO INODE %u SHOULD BE %u\n",
                                dir_ino,
                                name.c_str(),
@@ -323,7 +334,7 @@ int main(int argc, char **argv)
 
                 char type = fields.at(2).at(0);
                 uint32_t ino = atol(fields.at(1).c_str());
-
+                
                 // valid inode, should be allocated
                 if (type == 'f' || type == 'd' || type == 's') {
                         // oops, the bitmap doesn't reflect that
@@ -340,53 +351,62 @@ int main(int argc, char **argv)
                         
         }
 
-        // audit for invalid, reserved, and multiply referenced blocks
-        for (const auto &entry : b_refs) {
-                auto blk = entry.first;
-                auto bref = entry.second;
-                const char *state = NULL;
-                
-                // is this block outside of the filesystem boundary?
-                if (blk >= nr_blks)
-                        state = "INVALID";
-
-                // is this block reserved?
-                if (b_reserved.count(blk) > 0)
-                        state = "RESERVED";
-
-                if (state)
-                        printf("%s %sBLOCK %u IN INODE %u AT OFFSET %u\n",
-                               state,
-                               bref.lvl == 3 ? "TRIPPLE INDIRECT "
-                               : bref.lvl == 2 ? "DOUBLE INDIRECT "
-                               : bref.lvl == 1 ? "INDIRECT "
-                               : "",
-                               blk,
-                               bref.ino,
-                               bref.offset);
-
+        // audit for reserved and multiply referenced blocks
+        for (uint32_t blk = 0; blk < nr_blks; ++blk) {
                 // grab all references to this block
                 auto range = b_refs.equal_range(blk);
                 auto start = range.first;
                 auto end = range.second;
+                auto nrefs = distance(start, end);
 
-                // is there only one reference to this block?
-                if (distance(start, end) == 1)
+                if (nrefs == 0)
                         continue;
+
+                for (; start != end; ++start) {
+                        auto bref = start->second;
                 
-                for ( ; start != end; ++start) {
-                        blk = start->first;
-                        bref = start->second;
-                        
-                        printf("DUPLICATE %sBLOCK %u IN INODE %u AT OFFSET %u\n",
-                               bref.lvl == 3 ? "TRIPPLE INDIRECT "
-                               : bref.lvl == 2 ? "DOUBLE INDIRECT "
-                               : bref.lvl == 1 ? "INDIRECT "
-                               : "",
-                               blk,
-                               bref.ino,
-                               bref.offset);
+                        // is this block reserved?
+                        if (b_reserved.count(blk) > 0)
+                                printf("RESERVED %sBLOCK %u IN INODE %u AT OFFSET %u\n",
+                                       bref.lvl == 3 ? "TRIPPLE INDIRECT "
+                                       : bref.lvl == 2 ? "DOUBLE INDIRECT "
+                                       : bref.lvl == 1 ? "INDIRECT "
+                                       : "",
+                                       blk,
+                                       bref.ino,
+                                       bref.offset/blk_size);
+
+                        // it should be marked as allocated
+                        if (blk < nr_blks && nrefs > 0 && b_alloc_bmp.at(blk) != true)
+                                printf("ALLOCATED BLOCK %u ON FREELIST\n", blk);
+
+                        if (nrefs > 1) {
+                                printf("DUPLICATE %sBLOCK %u IN INODE %u AT OFFSET %u\n",
+                                       bref.lvl == 3 ? "TRIPPLE INDIRECT "
+                                       : bref.lvl == 2 ? "DOUBLE INDIRECT "
+                                       : bref.lvl == 1 ? "INDIRECT "
+                                       : "",
+                                       blk,
+                                       bref.ino,
+                                       bref.offset/blk_size);
+                        }
                 }
+        }
+
+        // audit for invalid blocks
+        for (const auto entry : b_refs) {
+                const auto blk = entry.first;
+                const auto bref = entry.second;
+
+                if (blk >= nr_blks)
+                        printf("INVALID %sBLOCK %u IN INODE %u AT OFFSET %u\n",
+                                       bref.lvl == 3 ? "TRIPPLE INDIRECT "
+                                       : bref.lvl == 2 ? "DOUBLE INDIRECT "
+                                       : bref.lvl == 1 ? "INDIRECT "
+                                       : "",
+                                       blk,
+                                       bref.ino,
+                                       bref.offset/blk_size);
         }
 
         // audit for unreferenced blocks
@@ -405,14 +425,24 @@ int main(int argc, char **argv)
                 printf("UNREFERENCED BLOCK %lu\n", i);
         }
 
-        // audit inode link counts
+        // audit inode link counts and more allocation shit
         // indexing is braindead and starts at 1 because ext2 inode numbers
         // start at 1...
-        for (uint32_t ino = 1; ino <= nr_inodes; ++ino) {
-                if (i_counts.at(ino) != i_counts_given.at(ino))
+        for (uint32_t ino = 0; ino <= nr_inodes; ++ino) {
+                if (ino <= first_free_ino && ino != 2)
+                        continue;
+                
+                if (i_seen.at(ino) && i_counts.at(ino) != i_counts_given.at(ino))
                         printf("INODE %u HAS %u LINKS BUT LINKCOUNT IS %u\n",
                                ino,
                                i_counts.at(ino),
                                i_counts_given.at(ino));
+
+                // we never saw this inode and it doesn't appear on the freelist
+                if (i_seen.at(ino) == false
+                    && i_alloc_bmp.at(ino) == true) {
+                        printf("UNALLOCATED INODE %u NOT ON FREELIST\n",
+                               ino);
+                }
         }
 }

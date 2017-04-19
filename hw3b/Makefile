@@ -4,7 +4,7 @@
 
 TARBALL=lab3b-40160869.tar.gz
 TARGETS=lab3b
-CXX=clang++
+CXX=g++
 CXXFLAGS=-Wall -pedantic -Wextra -Wformat -std=c++11 -g
 
 build: $(TARGETS)
